@@ -1,0 +1,1 @@
+# Tarefa 2: Implementação do algoritmo A* para encontrar a rota de menor custo passando pelos 24 ginásios

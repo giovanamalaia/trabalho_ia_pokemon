@@ -1,0 +1,1 @@
+# Tarefa 1: Implementação da Busca Local para otimização das batalhas e gestão da energia dos Pokémons.
