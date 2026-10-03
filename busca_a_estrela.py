@@ -131,11 +131,20 @@ def a_estrela_grid(mapa, inicio, fim):
     return None, float("inf"), expandidos, []
 
 def calcular_distancias(mapa, alvos):
+    """
+    Roda o A* do grid entre todos os pares de pontos.
+
+    Retorna (custo, caminhos, buscas, total_expandidos):
+        buscas[(a, b)]   -> (expandidos, fronteira) da busca que gerou o
+                            trecho a-b. Guardamos POR PAR para a interface
+                            mostrar só as buscas dos trechos da rota final.
+        total_expandidos -> soma das células expandidas em todas as buscas
+    """
     nomes = list(alvos.keys())   
     custo = {}
     caminhos = {}
-    todos_expandidos = set()
-    toda_fronteira = set()
+    buscas = {}
+    total_expandidos = 0
 
     for i, a in enumerate(nomes):
         for b in nomes[i + 1:]:           # só pares com a "antes" de b
@@ -150,11 +159,11 @@ def calcular_distancias(mapa, alvos):
             custo[(b, a)] = c - custo_celula(mapa, *pb) + custo_celula(mapa, *pa)
             caminhos[(b, a)] = list(reversed(cam))
 
-            todos_expandidos.update(exp)
-            toda_fronteira.update(fron)
+            # a volta b -> a usa a mesma busca
+            buscas[(a, b)] = buscas[(b, a)] = (exp, fron)
+            total_expandidos += len(exp)
 
-    toda_fronteira -= todos_expandidos  
-    return custo, caminhos, todos_expandidos, toda_fronteira
+    return custo, caminhos, buscas, total_expandidos
 
 def arvore_minima(pontos, custo, penalidade):
     """
@@ -331,15 +340,31 @@ def a_estrela_ginasios(custo, ginasios, origem=ORIGEM, destino=DESTINO, imprimir
 
 def resolver_rota(mapa, alvos, imprimir_expandidos=False):
     ginasios = list(GINASIOS_DIFICULDADE.keys())
-    custo, caminhos, expandidos_grid, fronteira_grid = calcular_distancias(mapa, alvos)
+    custo, caminhos, buscas, total_expandidos_grid = calcular_distancias(mapa, alvos)
     ordem, custo_trechos_total, expandidos_gin = a_estrela_ginasios(
         custo, ginasios, imprimir=imprimir_expandidos)
     caminho = [alvos[ORIGEM]]
     trechos = []
 
+    # Visitados/fronteira só das buscas dos trechos que formam a rota final
+    # (as outras buscas serviram só para calcular a tabela de custos).
+    visitados = []
+    ja_visitado = set()
+    fronteira = set()
+
     for a, b in zip(ordem, ordem[1:]):
         caminho.extend(caminhos[(a, b)][1:])
         trechos.append((a, b, custo[(a, b)]))
+
+        exp, fron = buscas[(a, b)]
+        for pos in exp:                   # mantém a ordem de expansão
+            if pos not in ja_visitado:
+                ja_visitado.add(pos)
+                visitados.append(pos)
+        fronteira.update(fron)
+
+    # uma célula expandida em algum trecho não é mais fronteira
+    fronteira -= ja_visitado
 
     origem_x, origem_y = alvos[ORIGEM]
     custo_rota = custo_trechos_total + custo_celula(mapa, origem_x, origem_y)
@@ -350,9 +375,9 @@ def resolver_rota(mapa, alvos, imprimir_expandidos=False):
         "caminho": caminho,
         "custo_rota": custo_rota,
         "custo_trechos": trechos,
-        "visitados": list(expandidos_grid),
-        "fronteira": list(fronteira_grid),
-        "estados_expandidos_grid": len(expandidos_grid),
+        "visitados": visitados,
+        "fronteira": list(fronteira),
+        "estados_expandidos_grid": total_expandidos_grid,
         "estados_expandidos_ginasios": len(expandidos_gin),
         "lista_estados_expandidos": expandidos_gin,
     }
