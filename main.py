@@ -2,6 +2,7 @@ from ambiente import carregar_mapa
 from interface import InterfaceGrafica
 from busca_a_estrela import resolver_rota
 from busca_local import executar_experimentos, calcular_energia, GINASIOS
+import pygame
 
 def main():
     print("carregar o mapa e coordenadas...")
@@ -69,16 +70,25 @@ def main():
     print("=" * 70)
 
     
-    print("abrindo interface gráfica...")
+    print("Iniciando animação passo a passo do agente...")
     ui = InterfaceGrafica(matriz_mapa, tamanho_celula=8)
     
-    ui.desenhar_busca(
-        posicao_agente=origem, 
-        visitados=visitados, 
-        fronteira=fronteira, 
-        caminho_final=caminho
-    )
-    
+    caminho_percorrido = []
+    visitados_parcial = []
+
+    for passo in caminho:
+        caminho_percorrido.append(passo)
+        visitados_parcial.append(passo)
+        
+        ui.animar_passo(
+            posicao_atual=passo,
+            visitados=visitados_parcial,
+            fronteira=fronteira,
+            caminho_final=caminho_percorrido
+        )
+        pygame.time.delay(20)
+
+    print("Animação concluída! Feche a janela para encerrar.")
     ui.manter_aberto()
 
 if __name__ == "__main__":

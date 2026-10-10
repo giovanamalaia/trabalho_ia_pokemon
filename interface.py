@@ -163,6 +163,27 @@ class InterfaceGrafica:
 
         pygame.quit()
 
+    def animar_passo(self, posicao_atual, visitados=None, fronteira=None, caminho_final=None):
+        """
+        Atualiza a tela em tempo real para cada passo do agente.
+        """
+        for evento in pygame.event.get():
+            if evento.type == pygame.QUIT:
+                pygame.quit()
+                sys.exit()
+
+        visitados = visitados or []
+        fronteira = fronteira or []
+        caminho_final = caminho_final or []
+
+        self.desenhar_mapa()
+        self.desenhar_visitados(visitados)
+        self.desenhar_fronteira(fronteira)
+        self.desenhar_caminho(caminho_final)
+        self.desenhar_agente(posicao_atual)
+
+        pygame.display.flip()
+
 
 if __name__ == "__main__":
     from ambiente import carregar_mapa
