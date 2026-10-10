@@ -1,3 +1,4 @@
+
 import math
 from copy import deepcopy
 import random
@@ -10,39 +11,30 @@ GINASIOS = list(GINASIOS_DIFICULDADE.keys())
 ENERGIA_INICIAL = 6
 
 
+# =========================================================
+# 1. CRIACAO E VALIDACAO DE SOLUCOES
+# =========================================================
 
 def criar_solucao_inicial():
     """
-    Cria uma solução inicial aleatória.
-
-    Cada ginásio recebe pelo menos um Pokémon.
-    A solução é uma lista com 24 posições:
-    
-        índice 0 -> ginásio 2
-        índice 1 -> ginásio 3
-        ...
-        índice 23 -> ginásio T
+    Cria uma solucao inicial valida.
+    Cada ginasio recebe pelo menos um Pokemon.
     """
 
-    solucao = []
+    while True:
+        solucao = [
+            [random.choice(POKEMONS)]
+            for _ in GINASIOS
+        ]
 
-    for _ in GINASIOS:
-
-        # Escolhe pelo menos um Pokémon para a batalha
-        pokemon = random.choice(POKEMONS)
-
-        solucao.append([pokemon])
-
-    return solucao
+        if solucao_valida(solucao):
+            return solucao
 
 
 def calcular_energia(solucao):
     """
-    Calcula quantas vezes cada Pokémon participou de batalhas
-    e determina sua energia final.
-
-    Cada Pokémon começa com 6 pontos.
-    Cada participação consome 1 ponto.
+    Cada Pokemon comeca com 6 pontos.
+    Cada participacao em batalha consome 1 ponto.
     """
 
     energia = {
@@ -51,38 +43,35 @@ def calcular_energia(solucao):
     }
 
     for batalha in solucao:
-
         for pokemon in batalha:
-
             energia[pokemon] -= 1
 
     return energia
 
 
-
 def solucao_valida(solucao):
     """
-    Verifica se uma solução respeita as regras de energia.
-
-    Regras:
-    - nenhum Pokémon pode ficar com energia negativa;
-    - pelo menos um Pokémon deve terminar com energia >= 1;
-    - cada ginásio deve possuir pelo menos um Pokémon.
+    Verifica as restricoes de energia e de distribuicao.
     """
 
-    
+    if len(solucao) != len(GINASIOS):
+        return False
+
     for batalha in solucao:
 
-        if len(batalha) == 0:
+        if not batalha:
+            return False
+
+        if len(batalha) != len(set(batalha)):
+            return False
+
+        if any(pokemon not in POKEMONS for pokemon in batalha):
             return False
 
     energia = calcular_energia(solucao)
 
-    
-    for valor in energia.values():
-
-        if valor < 0:
-            return False
+    if any(valor < 0 for valor in energia.values()):
+        return False
 
     if not any(valor >= 1 for valor in energia.values()):
         return False
@@ -90,15 +79,13 @@ def solucao_valida(solucao):
     return True
 
 
+# =========================================================
+# 2. CALCULO DOS CUSTOS
+# =========================================================
 
 def calcular_custo_batalha(ginasio, pokemons):
     """
-    Calcula o tempo de uma batalha.
-
-    Fórmula:
-
-        Tempo = dificuldade do ginásio /
-                soma dos poderes dos Pokémon
+    Tempo = dificuldade do ginasio / poder total dos Pokemon.
     """
 
     dificuldade = GINASIOS_DIFICULDADE[ginasio]
@@ -114,58 +101,75 @@ def calcular_custo_batalha(ginasio, pokemons):
     return dificuldade / poder_total
 
 
-
 def calcular_custo(solucao):
     """
-    Calcula o custo total das 24 batalhas.
-
-    Quanto menor o custo, melhor a solução.
+    Calcula o custo total das batalhas.
+    Quanto menor o custo, melhor a solucao.
     """
 
     if not solucao_valida(solucao):
         return float("inf")
 
-    custo_total = 0
-
-    for indice, batalha in enumerate(solucao):
-
-        ginasio = GINASIOS[indice]
-
-        custo = calcular_custo_batalha(
-            ginasio,
+    return sum(
+        calcular_custo_batalha(
+            GINASIOS[indice],
             batalha
         )
-
-        custo_total += custo
-
-    return custo_total
+        for indice, batalha in enumerate(solucao)
+    )
 
 
+# =========================================================
+# 3. GERACAO DE VIZINHOS
+# =========================================================
 
 def gerar_vizinho(solucao):
     """
-    Cria uma nova solução modificando apenas uma batalha.
-
-    As possíveis alterações são:
-    - adicionar um Pokémon;
-    - remover um Pokémon;
-    - substituir um Pokémon por outro.
+    Cria uma solucao vizinha usando uma das operacoes:
+    - adicionar Pokemon;
+    - remover Pokemon;
+    - substituir Pokemon;
+    - transferir Pokemon entre ginasios.
     """
 
     vizinho = deepcopy(solucao)
 
-    # Escolhe aleatoriamente um dos ginásios
-    indice_batalha = random.randrange(len(vizinho))
-
-    batalha = vizinho[indice_batalha]
-
-    # Escolhe uma operação
     operacao = random.choice([
         "adicionar",
         "remover",
-        "substituir"
+        "substituir",
+        "transferir"
     ])
 
+    if operacao == "transferir":
+
+        indice_origem = random.randrange(len(vizinho))
+        indice_destino = random.randrange(len(vizinho))
+
+        while indice_destino == indice_origem:
+            indice_destino = random.randrange(len(vizinho))
+
+        origem = vizinho[indice_origem]
+        destino = vizinho[indice_destino]
+
+        if len(origem) > 1:
+
+            disponiveis = [
+                pokemon
+                for pokemon in origem
+                if pokemon not in destino
+            ]
+
+            if disponiveis:
+                pokemon = random.choice(disponiveis)
+
+                origem.remove(pokemon)
+                destino.append(pokemon)
+
+        return vizinho
+
+    indice = random.randrange(len(vizinho))
+    batalha = vizinho[indice]
 
     if operacao == "adicionar":
 
@@ -176,109 +180,240 @@ def gerar_vizinho(solucao):
         ]
 
         if disponiveis:
-
-            pokemon = random.choice(disponiveis)
-
-            batalha.append(pokemon)
+            batalha.append(random.choice(disponiveis))
 
     elif operacao == "remover":
 
-        # Uma batalha nunca pode ficar sem Pokémon
         if len(batalha) > 1:
-
-            pokemon = random.choice(batalha)
-
-            batalha.remove(pokemon)
+            batalha.remove(random.choice(batalha))
 
     elif operacao == "substituir":
 
-        # Só podemos substituir se houver pelo menos
-        # um Pokémon na batalha
-        if len(batalha) > 0:
+        disponiveis = [
+            pokemon
+            for pokemon in POKEMONS
+            if pokemon not in batalha
+        ]
 
-            disponiveis = [
-                pokemon
-                for pokemon in POKEMONS
-                if pokemon not in batalha
-            ]
+        if batalha and disponiveis:
 
-            if disponiveis:
+            remover = random.choice(batalha)
+            adicionar = random.choice(disponiveis)
 
-                pokemon_remover = random.choice(batalha)
-                pokemon_adicionar = random.choice(disponiveis)
-
-                batalha.remove(pokemon_remover)
-                batalha.append(pokemon_adicionar)
+            batalha.remove(remover)
+            batalha.append(adicionar)
 
     return vizinho
 
 
-def hill_climbing(max_iteracoes=1000):
+def gerar_vizinho_valido(solucao, max_tentativas=30):
     """
-    Executa o algoritmo Hill Climbing.
-
-    O algoritmo começa com uma solução aleatória
-    e tenta encontrar vizinhos com custo menor.
-
-    Como estamos minimizando o tempo:
-
-        custo menor = solução melhor
+    Tenta encontrar um vizinho valido.
+    Se nao encontrar, conserva a solucao original.
     """
 
-    solucao_atual = criar_solucao_inicial()
+    for _ in range(max_tentativas):
 
-    while not solucao_valida(solucao_atual):
+        vizinho = gerar_vizinho(solucao)
 
+        if solucao_valida(vizinho):
+            return vizinho
+
+    return deepcopy(solucao)
+
+
+# =========================================================
+# 4. SIMULATED ANNEALING
+# =========================================================
+
+def simulated_annealing(
+    solucao_inicial=None,
+    max_iteracoes=50000,
+    temperatura_inicial=50.0,
+    temperatura_minima=0.01,
+    taxa_resfriamento=0.99985
+):
+    """
+    Explora o espaco de solucoes usando Simulated Annealing.
+
+    Aceita solucoes melhores e, probabilisticamente,
+    tambem pode aceitar solucoes piores.
+
+    Retorna a melhor solucao encontrada durante a busca.
+    """
+
+    if solucao_inicial is None:
         solucao_atual = criar_solucao_inicial()
+    else:
+        if not solucao_valida(solucao_inicial):
+            raise ValueError("A solucao inicial precisa ser valida.")
+
+        solucao_atual = deepcopy(solucao_inicial)
 
     custo_atual = calcular_custo(solucao_atual)
 
+    melhor_solucao = deepcopy(solucao_atual)
+    melhor_custo = custo_atual
+
+    temperatura = temperatura_inicial
+
     for _ in range(max_iteracoes):
 
-        vizinho = gerar_vizinho(solucao_atual)
+        if temperatura < temperatura_minima:
+            break
 
-        # Ignora vizinhos inválidos
-        if not solucao_valida(vizinho):
-            continue
-
+        vizinho = gerar_vizinho_valido(solucao_atual)
         custo_vizinho = calcular_custo(vizinho)
 
-        # Se o vizinho for melhor, caminhamos para ele
-        if custo_vizinho < custo_atual:
+        diferenca = custo_vizinho - custo_atual
+
+        if diferenca <= 0:
 
             solucao_atual = vizinho
             custo_atual = custo_vizinho
 
-    return solucao_atual, custo_atual
+        else:
 
+            probabilidade = math.exp(
+                -diferenca / temperatura
+            )
+
+            if random.random() < probabilidade:
+                solucao_atual = vizinho
+                custo_atual = custo_vizinho
+
+        if custo_atual < melhor_custo:
+
+            melhor_solucao = deepcopy(solucao_atual)
+            melhor_custo = custo_atual
+
+        temperatura *= taxa_resfriamento
+
+    return melhor_solucao, melhor_custo
+
+
+# =========================================================
+# 5. REFINAMENTO POR BUSCA LOCAL
+# =========================================================
+
+def refinar_solucao(
+    solucao,
+    max_iteracoes=1000,
+    vizinhos_por_iteracao=50
+):
+    """
+    Tenta melhorar a solucao encontrada pelo SA.
+
+    Em cada rodada:
+    1. Gera varios vizinhos validos.
+    2. Identifica o vizinho de menor custo.
+    3. Aceita a mudanca somente se houver melhoria.
+    4. Para se nao encontrar uma melhoria na rodada.
+
+    O resultado nunca tem custo maior que a solucao recebida.
+    """
+
+    melhor_solucao = deepcopy(solucao)
+    melhor_custo = calcular_custo(melhor_solucao)
+
+    for _ in range(max_iteracoes):
+
+        melhor_vizinho = None
+        custo_melhor_vizinho = melhor_custo
+
+        for _ in range(vizinhos_por_iteracao):
+
+            vizinho = gerar_vizinho_valido(melhor_solucao)
+            custo_vizinho = calcular_custo(vizinho)
+
+            if custo_vizinho < custo_melhor_vizinho:
+
+                melhor_vizinho = vizinho
+                custo_melhor_vizinho = custo_vizinho
+
+        # Nenhum vizinho melhor foi encontrado.
+        if melhor_vizinho is None:
+            break
+
+        # Avanca somente para uma solucao melhor.
+        melhor_solucao = deepcopy(melhor_vizinho)
+        melhor_custo = custo_melhor_vizinho
+
+    return melhor_solucao, melhor_custo
+
+
+# =========================================================
+# 6. ALGORITMO HIBRIDO: SA + BUSCA LOCAL
+# =========================================================
+
+def algoritmo_hibrido(
+    max_iteracoes_sa=50000,
+    max_iteracoes_local=1000,
+    vizinhos_por_iteracao=50
+):
+    """
+    Executa o SA e depois refina a melhor solucao encontrada.
+
+    A busca local recebe a melhor solucao do SA.
+    """
+
+    # Primeira etapa: exploracao com Simulated Annealing.
+    solucao_sa, custo_sa = simulated_annealing(
+        max_iteracoes=max_iteracoes_sa
+    )
+
+    # Segunda etapa: refinamento local.
+    solucao_final, custo_final = refinar_solucao(
+        solucao_sa,
+        max_iteracoes=max_iteracoes_local,
+        vizinhos_por_iteracao=vizinhos_por_iteracao
+    )
+
+    return solucao_final, custo_final
+
+
+# =========================================================
+# 7. EXPERIMENTOS
+# =========================================================
 
 def executar_experimentos(numero_execucoes=30):
     """
-    Executa o Hill Climbing várias vezes.
+    Executa o algoritmo hibrido varias vezes.
 
     Retorna:
-    - melhor solução;
+    - melhor solucao global encontrada nos experimentos;
     - melhor custo;
-    - média dos custos;
-    - desvio padrão;
-    - número de execuções.
+    - media dos custos finais;
+    - desvio padrao amostral;
+    - numero de execucoes.
     """
+
+    if numero_execucoes < 1:
+        raise ValueError(
+            "O numero de execucoes deve ser pelo menos 1."
+        )
 
     resultados = []
 
     melhor_solucao = None
     melhor_custo = float("inf")
 
-    for _ in range(numero_execucoes):
+    for execucao in range(numero_execucoes):
 
-        solucao, custo = hill_climbing()
+        solucao, custo = algoritmo_hibrido()
 
         resultados.append(custo)
 
         if custo < melhor_custo:
 
             melhor_custo = custo
-            melhor_solucao = solucao
+            melhor_solucao = deepcopy(solucao)
+
+        print(
+            f"Execucao {execucao + 1}/{numero_execucoes} "
+            f"| Custo final: {custo:.2f} "
+            f"| Melhor ate agora: {melhor_custo:.2f}"
+        )
 
     media = sum(resultados) / len(resultados)
 
@@ -292,8 +427,7 @@ def executar_experimentos(numero_execucoes=30):
         )
 
     else:
-
-        desvio_padrao = 0
+        desvio_padrao = 0.0
 
     return (
         melhor_solucao,
@@ -304,6 +438,9 @@ def executar_experimentos(numero_execucoes=30):
     )
 
 
+# =========================================================
+# 8. EXIBICAO DOS RESULTADOS
+# =========================================================
 
 def mostrar_resultado(
     solucao,
@@ -313,20 +450,23 @@ def mostrar_resultado(
     numero_execucoes
 ):
     """
-    Mostra no terminal o resultado final da busca local.
+    Exibe a melhor solucao e as estatisticas dos experimentos.
     """
 
     print("\n")
     print("=" * 60)
-    print("RESULTADO DA BUSCA LOCAL")
+    print("RESULTADO DO ALGORITMO HIBRIDO (SA + BUSCA LOCAL)")
     print("=" * 60)
 
-    print(f"Número de execuções: {numero_execucoes}")
+    print(f"Numero de execucoes: {numero_execucoes}")
     print(f"Melhor custo: {custo_total:.2f}")
-    print(f"Média dos custos: {media:.2f}")
-    print(f"Desvio padrão: {desvio_padrao:.2f}")
+    print(f"Media dos custos: {media:.2f}")
+    print(f"Desvio padrao: {desvio_padrao:.2f}")
 
-    print("\nPokémon utilizados em cada ginásio: (TOTAL = 24 ginásios)")
+    print(
+        "\nPokemon utilizados em cada ginasio: "
+        f"(TOTAL = {len(GINASIOS)} ginasios)"
+    )
 
     for indice, batalha in enumerate(solucao):
 
@@ -338,23 +478,24 @@ def mostrar_resultado(
         )
 
         print(
-            f"Ginásio {ginasio}: "
+            f"Ginasio {ginasio}: "
             f"{', '.join(batalha)} "
             f"-> custo: {custo:.2f}"
         )
 
     energia_final = calcular_energia(solucao)
 
-    print("\nEnergia final dos Pokémon:")
+    print("\nEnergia final dos Pokemon:")
 
     for pokemon, energia in energia_final.items():
-
-        print(
-            f"{pokemon}: {energia}"
-        )
+        print(f"{pokemon}: {energia}")
 
     print("=" * 60)
 
+
+# =========================================================
+# 9. EXECUCAO PRINCIPAL
+# =========================================================
 
 if __name__ == "__main__":
 
