@@ -130,9 +130,12 @@ def a_estrela_grid(mapa, inicio, fim):
     # Se a fronteira esvaziou sem chegar no fim, não existe caminho
     return None, float("inf"), expandidos, []
 
-def calcular_distancias(mapa, alvos):
+def calcular_distancias(mapa, alvos, ao_calcular=None):
     """
     Roda o A* do grid entre todos os pares de pontos.
+
+    ao_calcular -> função opcional chamada como ao_calcular(a, b, caminho, custo)
+                   assim que cada par é calculado (usada para desenhar na tela)
 
     Retorna (custo, caminhos, buscas, total_expandidos):
         buscas[(a, b)]   -> (expandidos, fronteira) da busca que gerou o
@@ -162,6 +165,9 @@ def calcular_distancias(mapa, alvos):
             # a volta b -> a usa a mesma busca
             buscas[(a, b)] = buscas[(b, a)] = (exp, fron)
             total_expandidos += len(exp)
+
+            if ao_calcular is not None:
+                ao_calcular(a, b, cam, c)
 
     return custo, caminhos, buscas, total_expandidos
 
@@ -338,9 +344,18 @@ def a_estrela_ginasios(custo, ginasios, origem=ORIGEM, destino=DESTINO, imprimir
     return None, float("inf"), expandidos
 
 
-def resolver_rota(mapa, alvos, imprimir_expandidos=False):
+def resolver_rota(mapa, alvos, imprimir_expandidos=False,
+                  ao_calcular_trecho=None, antes_da_ordem=None):
+    """
+    ao_calcular_trecho -> repassada para calcular_distancias (degrau 2)
+    antes_da_ordem     -> função opcional chamada sem argumentos antes do
+                          degrau 3 (a interface avisa que está calculando)
+    """
     ginasios = list(GINASIOS_DIFICULDADE.keys())
-    custo, caminhos, buscas, total_expandidos_grid = calcular_distancias(mapa, alvos)
+    custo, caminhos, buscas, total_expandidos_grid = calcular_distancias(
+        mapa, alvos, ao_calcular=ao_calcular_trecho)
+    if antes_da_ordem is not None:
+        antes_da_ordem()
     ordem, custo_trechos_total, expandidos_gin = a_estrela_ginasios(
         custo, ginasios, imprimir=imprimir_expandidos)
     caminho = [alvos[ORIGEM]]
@@ -382,6 +397,101 @@ def resolver_rota(mapa, alvos, imprimir_expandidos=False):
         "lista_estados_expandidos": expandidos_gin,
     }
 
+
+# ---------------------------------------------------------------------
+# Visualização: mostra as possibilidades enquanto calcula
+# ---------------------------------------------------------------------
+
+COR_POSSIBILIDADE = (220, 0, 180, 110)   # magenta transparente: já calculados
+COR_NOVO = (255, 230, 0)                 # amarelo: caminho que acabou de sair
+
+
+def resolver_rota_na_tela(mapa, alvos, imprimir_expandidos=False,
+                          tamanho_celula=8, atraso_ms=15, atraso_passo_ms=20):
+    """
+    Igual ao resolver_rota, mas desenhando na tela:
+      1) enquanto o degrau 2 calcula, cada caminho entre dois pontos
+         aparece na hora (o mais novo em amarelo, os anteriores em magenta)
+      2) quando a melhor rota sai, as possibilidades são apagadas e o
+         agente anda só pela melhor rota (com visitados e fronteira)
+
+    Retorna (resultado, ui) - a janela fica aberta com ui.manter_aberto().
+    """
+    import pygame
+    from interface import InterfaceGrafica
+
+    ui = InterfaceGrafica(mapa, tamanho_celula=tamanho_celula)
+    fonte = pygame.font.SysFont(None, 16)
+    meio = tamanho_celula // 2
+    total_pares = len(alvos) * (len(alvos) - 1) // 2
+
+    # o mapa não muda: desenha uma vez e guarda
+    ui.desenhar_mapa()
+    base = ui.tela.copy()
+    # camada onde os caminhos calculados vão se acumulando
+    possibilidades = pygame.Surface((ui.largura, ui.altura), pygame.SRCALPHA)
+    calculados = [0]
+
+    def centro(pos):
+        return (pos[0] * tamanho_celula + meio, pos[1] * tamanho_celula + meio)
+
+    def tratar_eventos():
+        for evento in pygame.event.get():
+            if evento.type == pygame.QUIT:
+                pygame.quit()
+                raise SystemExit
+
+    def escrever(texto):
+        img = fonte.render(texto, True, (255, 255, 255))
+        caixa = pygame.Surface((img.get_width() + 8, img.get_height() + 6),
+                               pygame.SRCALPHA)
+        caixa.fill((0, 0, 0, 170))
+        ui.tela.blit(caixa, (4, 4))
+        ui.tela.blit(img, (8, 7))
+
+    def ao_calcular_trecho(a, b, cam, c):
+        tratar_eventos()
+        calculados[0] += 1
+        pontos = [centro(p) for p in cam]
+        ui.tela.blit(base, (0, 0))
+        ui.tela.blit(possibilidades, (0, 0))
+        pygame.draw.lines(ui.tela, COR_NOVO, False, pontos, 3)
+        escrever(f"Calculando possibilidades: {calculados[0]}/{total_pares}"
+                 f"   {a} -> {b}: custo {c}")
+        pygame.display.flip()
+        # depois de mostrado, entra para a camada dos já calculados
+        pygame.draw.lines(possibilidades, COR_POSSIBILIDADE, False, pontos, 1)
+        pygame.time.delay(atraso_ms)
+
+    def antes_da_ordem():
+        tratar_eventos()
+        ui.tela.blit(base, (0, 0))
+        ui.tela.blit(possibilidades, (0, 0))
+        escrever(f"{total_pares} possibilidades calculadas - "
+                 "procurando a melhor ordem dos ginásios (A*)...")
+        pygame.display.flip()
+
+    resultado = resolver_rota(mapa, alvos, imprimir_expandidos,
+                              ao_calcular_trecho=ao_calcular_trecho,
+                              antes_da_ordem=antes_da_ordem)
+
+    # melhor rota encontrada: apaga as possibilidades e anda só por ela
+    percorrido = []
+    for pos in resultado["caminho"]:
+        tratar_eventos()
+        percorrido.append(pos)
+        ui.tela.blit(base, (0, 0))
+        ui.desenhar_visitados(resultado["visitados"])
+        ui.desenhar_fronteira(resultado["fronteira"])
+        ui.desenhar_caminho(percorrido)
+        ui.desenhar_agente(pos)
+        escrever(f"Melhor rota: {' -> '.join(resultado['ordem'])}"
+                 f"   C_rota = {resultado['custo_rota']}")
+        pygame.display.flip()
+        pygame.time.delay(atraso_passo_ms)
+
+    return resultado, ui
+
 if __name__ == "__main__":
 
     # Roda o A* no mapa real (mapa.txt)
@@ -390,7 +500,7 @@ if __name__ == "__main__":
 
     inicio = time.time()
     print("ESTADOS EXPANDIDOS (degrau 3):")
-    r = resolver_rota(mapa, alvos, imprimir_expandidos=True)
+    r, ui = resolver_rota_na_tela(mapa, alvos, imprimir_expandidos=True)
     print()
     duracao = time.time() - inicio
 
@@ -407,4 +517,7 @@ if __name__ == "__main__":
     print(f"Tamanho do caminho: {len(r['caminho'])} células")
     print(f"Células expandidas (degrau 1): {r['estados_expandidos_grid']}")
     print(f"Estados expandidos (degrau 3): {r['estados_expandidos_ginasios']}")
-    print(f"Tempo: {duracao:.1f}s")
+    print(f"Tempo (com a animação): {duracao:.1f}s")
+
+    print("\nFeche a janela para encerrar.")
+    ui.manter_aberto()
