@@ -441,13 +441,30 @@ def resolver_rota_na_tela(mapa, alvos, imprimir_expandidos=False,
                 pygame.quit()
                 raise SystemExit
 
+
     def escrever(texto):
         img = fonte.render(texto, True, (255, 255, 255))
-        caixa = pygame.Surface((img.get_width() + 8, img.get_height() + 6),
-                               pygame.SRCALPHA)
-        caixa.fill((0, 0, 0, 170))
-        ui.tela.blit(caixa, (4, 4))
-        ui.tela.blit(img, (8, 7))
+
+        margem = 8
+        altura_caixa = img.get_height() + 10
+        largura_caixa = min(
+            img.get_width() + 2 * margem,
+            ui.largura - 2 * margem
+        )
+
+        # Posiciona a caixa na parte inferior da janela
+        x = margem
+        y = ui.altura - altura_caixa - margem
+
+        caixa = pygame.Surface(
+            (largura_caixa, altura_caixa),
+            pygame.SRCALPHA
+        )
+        caixa.fill((0, 0, 0, 200))
+
+        ui.tela.blit(caixa, (x, y))
+        ui.tela.blit(img, (x + margem, y + 5))
+
 
     def ao_calcular_trecho(a, b, cam, c):
         tratar_eventos()
@@ -460,7 +477,7 @@ def resolver_rota_na_tela(mapa, alvos, imprimir_expandidos=False,
                  f"   {a} -> {b}: custo {c}")
         pygame.display.flip()
         # depois de mostrado, entra para a camada dos já calculados
-        pygame.draw.lines(possibilidades, COR_POSSIBILIDADE, False, pontos, 1)
+        pygame.draw.lines(possibilidades, COR_POSSIBILIDADE, False, pontos, 3)
         pygame.time.delay(atraso_ms)
 
     def antes_da_ordem():
