@@ -1,32 +1,8 @@
-"""
-A* da Pessoa 1: menor rota saindo de '1', passando pelos 24 ginásios e
-terminando em 'U'.
-
-Funciona em 3 degraus:
-  1) a_estrela_grid       -> A* célula a célula no mapa (custos de terreno)
-  2) calcular_distancias  -> usa o degrau 1 entre todos os pares de pontos
-  3) a_estrela_ginasios   -> A* sobre a ORDEM de visita dos ginásios
-
-POR QUE A HEURÍSTICA DO DEGRAU 3 É ADMISSÍVEL (nunca superestima):
-  O que falta fazer é uma LINHA: sai do ponto atual, passa por todos os
-  ginásios que faltam e termina em 'U'. Nessa linha, o ponto atual e o 'U'
-  são as pontas (1 ligação cada) e cada ginásio tem 2 ligações. Ela custa
-  pelo menos:
-    a) a ligação mais barata do ponto atual até um ginásio que falta;
-    b) + a Árvore Geradora Mínima (MST) entre os ginásios que faltam
-       (toda forma de ligar pontos custa pelo menos a MST deles);
-    c) + a ligação mais barata do 'U' até um ginásio que falta.
-  Para deixar o palpite mais forte, cada ginásio ganha uma "penalidade"
-  por ligação (limite de Held-Karp). Na rota real cada ginásio tem
-  exatamente 2 ligações, então descontamos 2 x penalidade de cada um e o
-  valor continua SEMPRE <= ao custo real que falta, para qualquer
-  penalidade. Como a heurística nunca superestima, o A* garante a rota de
-  menor custo (ótimo global).
-"""
-
 import heapq   
 import math
 import time   
+import pygame
+from interface import InterfaceGrafica
 
 from config import CUSTO_TERRENO, GINASIOS_DIFICULDADE
 
@@ -50,30 +26,6 @@ def manhattan(a, b):
     return abs(a[0] - b[0]) + abs(a[1] - b[1])
 
 def a_estrela_grid(mapa, inicio, fim):
-    """
-    Encontra o caminho de MENOR CUSTO de 'inicio' até 'fim' no grid.
-
-    Parâmetros:
-        mapa   -> matriz vinda do ambiente.py (mapa[y][x])
-        inicio -> tupla (x, y)
-        fim    -> tupla (x, y)
-
-    Retorna uma tupla (caminho, custo, expandidos, fronteira_final):
-        caminho         -> lista de (x, y) do início até o fim, inclusive
-        custo           -> soma dos custos das células em que ENTROU
-                           (a célula inicial não é cobrada aqui)
-        expandidos      -> células na ordem em que foram expandidas
-                           (a interface pinta como "visitados")
-        fronteira_final -> células que ainda estavam na fila quando achou o fim
-                           (a interface pinta como "fronteira")
-
-    Ideia do A*:
-        Para cada célula n, f(n) = g(n) + h(n)
-            g(n) = custo REAL já gasto do início até n
-            h(n) = PALPITE de quanto falta de n até o fim (Manhattan)
-        Sempre expandimos a célula com MENOR f. Assim gastamos esforço só
-        nas direções promissoras, em vez de espalhar para todo lado.
-    """
     altura = len(mapa)        # número de linhas (42)
     largura = len(mapa[0])    # número de colunas (150)
 
@@ -131,18 +83,6 @@ def a_estrela_grid(mapa, inicio, fim):
     return None, float("inf"), expandidos, []
 
 def calcular_distancias(mapa, alvos, ao_calcular=None):
-    """
-    Roda o A* do grid entre todos os pares de pontos.
-
-    ao_calcular -> função opcional chamada como ao_calcular(a, b, caminho, custo)
-                   assim que cada par é calculado (usada para desenhar na tela)
-
-    Retorna (custo, caminhos, buscas, total_expandidos):
-        buscas[(a, b)]   -> (expandidos, fronteira) da busca que gerou o
-                            trecho a-b. Guardamos POR PAR para a interface
-                            mostrar só as buscas dos trechos da rota final.
-        total_expandidos -> soma das células expandidas em todas as buscas
-    """
     nomes = list(alvos.keys())   
     custo = {}
     caminhos = {}
@@ -150,7 +90,7 @@ def calcular_distancias(mapa, alvos, ao_calcular=None):
     total_expandidos = 0
 
     for i, a in enumerate(nomes):
-        for b in nomes[i + 1:]:           # só pares com a "antes" de b
+        for b in nomes[i + 1:]: # só pares com a "antes" de b
             pa, pb = alvos[a], alvos[b]
             cam, c, exp, fron = a_estrela_grid(mapa, pa, pb)
 
@@ -172,13 +112,6 @@ def calcular_distancias(mapa, alvos, ao_calcular=None):
     return custo, caminhos, buscas, total_expandidos
 
 def arvore_minima(pontos, custo, penalidade):
-    """
-    Árvore Geradora Mínima (algoritmo de Prim) ligando todos os 'pontos'.
-    Cada ligação a-b custa custo[(a, b)] + penalidade[a] + penalidade[b].
-
-    Retorna (custo_da_arvore, grau), onde grau[p] = quantas ligações
-    o ponto p recebeu na árvore.
-    """
     pontos = list(pontos)
     grau = {p: 0 for p in pontos}
     if len(pontos) <= 1:
@@ -206,20 +139,6 @@ def arvore_minima(pontos, custo, penalidade):
 
 
 def limite_inferior(atual, faltam, custo, penalidade, destino=DESTINO):
-    """
-    Limite inferior para "sair de 'atual', passar por todos os 'faltam'
-    e terminar em 'destino'".
-
-    Esse trajeto é uma linha: 'atual' e 'destino' são as pontas (1 ligação
-    cada) e cada ginásio do meio tem 2 ligações. Então ele custa pelo menos:
-        ligação mais barata de 'atual' até um ginásio que falta
-      + árvore mínima entre os ginásios que faltam
-      + ligação mais barata do 'destino' até um ginásio que falta
-    Com penalidades, cada ponto paga 'penalidade' por ligação. No trajeto
-    real isso soma penalidade*grau, que descontamos no final.
-
-    Retorna (limite, grau) - o grau é usado para ajustar as penalidades.
-    """
     faltam = list(faltam)
     total, grau = arvore_minima(faltam, custo, penalidade)
 
@@ -235,16 +154,6 @@ def limite_inferior(atual, faltam, custo, penalidade, destino=DESTINO):
 
 
 def calcular_penalidades(custo, ginasios, origem=ORIGEM, destino=DESTINO, iteracoes=2000):
-    """
-    Ajusta as penalidades para o limite_inferior ficar o mais alto possível
-    (limite de Held-Karp). A ideia: na rota real, todo ginásio tem
-    exatamente 2 ligações. Se na árvore um ginásio ficou com MAIS de 2,
-    ele fica "mais caro" (penalidade sobe); com MENOS de 2, fica mais
-    barato. Repetindo isso, a árvore vai ficando parecida com uma rota.
-
-    Qualquer penalidade gera um limite que nunca passa do custo real,
-    então isso só deixa a heurística mais forte, sem perder a garantia.
-    """
     penalidade = {p: 0.0 for p in list(ginasios) + [origem, destino]}
     melhor_valor = float("-inf")
     melhor = dict(penalidade)
@@ -267,16 +176,9 @@ def calcular_penalidades(custo, ginasios, origem=ORIGEM, destino=DESTINO, iterac
 def a_estrela_ginasios(custo, ginasios, origem=ORIGEM, destino=DESTINO, imprimir=False):
     todos = frozenset(ginasios)
     penalidade = calcular_penalidades(custo, ginasios, origem, destino)
-
-    # O mesmo conjunto "faltam" aparece em vários estados, então guardamos
-    # a parte do limite que só depende dele.
     cache = {}
 
     def heuristica(atual, visitados):
-        """
-        h(estado) = limite_inferior(atual, ginásios que faltam) - ver acima.
-        Admissível (nunca superestima). Explicação no topo do arquivo.
-        """
         if atual == destino:
             return 0
         faltam = todos - visitados
@@ -300,9 +202,6 @@ def a_estrela_ginasios(custo, ginasios, origem=ORIGEM, destino=DESTINO, imprimir
 
     while fronteira:
         f_atual, g_atual, _, estado = heapq.heappop(fronteira)
-
-        # Cópia antiga na fila (já achamos um caminho mais barato até este
-        # estado depois que ela foi colocada): ignora.
         if g_atual > g[estado]:
             continue
 
@@ -316,7 +215,7 @@ def a_estrela_ginasios(custo, ginasios, origem=ORIGEM, destino=DESTINO, imprimir
         if atual == destino:
             ordem = []
             while estado is not None:
-                ordem.append(estado[0])      # estado[0] = ponto_atual
+                ordem.append(estado[0]) # estado[0] = ponto_atual
                 estado = veio_de[estado]
             ordem.reverse()
             return ordem, g_atual, expandidos
@@ -346,11 +245,6 @@ def a_estrela_ginasios(custo, ginasios, origem=ORIGEM, destino=DESTINO, imprimir
 
 def resolver_rota(mapa, alvos, imprimir_expandidos=False,
                   ao_calcular_trecho=None, antes_da_ordem=None):
-    """
-    ao_calcular_trecho -> repassada para calcular_distancias (degrau 2)
-    antes_da_ordem     -> função opcional chamada sem argumentos antes do
-                          degrau 3 (a interface avisa que está calculando)
-    """
     ginasios = list(GINASIOS_DIFICULDADE.keys())
     custo, caminhos, buscas, total_expandidos_grid = calcular_distancias(
         mapa, alvos, ao_calcular=ao_calcular_trecho)
@@ -372,7 +266,7 @@ def resolver_rota(mapa, alvos, imprimir_expandidos=False,
         trechos.append((a, b, custo[(a, b)]))
 
         exp, fron = buscas[(a, b)]
-        for pos in exp:                   # mantém a ordem de expansão
+        for pos in exp: # mantém a ordem de expansão
             if pos not in ja_visitado:
                 ja_visitado.add(pos)
                 visitados.append(pos)
@@ -398,28 +292,14 @@ def resolver_rota(mapa, alvos, imprimir_expandidos=False,
     }
 
 
-# ---------------------------------------------------------------------
 # Visualização: mostra as possibilidades enquanto calcula
-# ---------------------------------------------------------------------
 
-COR_POSSIBILIDADE = (220, 0, 180, 110)   # magenta transparente: já calculados
-COR_NOVO = (255, 230, 0)                 # amarelo: caminho que acabou de sair
+COR_POSSIBILIDADE = (220, 0, 180, 110)   # já calculados
+COR_NOVO = (255, 230, 0)  # amarelo: caminho que acabou de sair
 
 
 def resolver_rota_na_tela(mapa, alvos, imprimir_expandidos=False,
                           tamanho_celula=8, atraso_ms=15, atraso_passo_ms=20):
-    """
-    Igual ao resolver_rota, mas desenhando na tela:
-      1) enquanto o degrau 2 calcula, cada caminho entre dois pontos
-         aparece na hora (o mais novo em amarelo, os anteriores em magenta)
-      2) quando a melhor rota sai, as possibilidades são apagadas e o
-         agente anda só pela melhor rota (com visitados e fronteira)
-
-    Retorna (resultado, ui) - a janela fica aberta com ui.manter_aberto().
-    """
-    import pygame
-    from interface import InterfaceGrafica
-
     ui = InterfaceGrafica(mapa, tamanho_celula=tamanho_celula)
     fonte = pygame.font.SysFont(None, 16)
     meio = tamanho_celula // 2
