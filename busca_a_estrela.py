@@ -82,7 +82,7 @@ def a_estrela_grid(mapa, inicio, fim):
     # Se a fronteira esvaziou sem chegar no fim, não existe caminho
     return None, float("inf"), expandidos, []
 
-def calcular_distancias(mapa, alvos, ao_calcular=None):
+def calcular_distancias(mapa, alvos, tela=None):
     nomes = list(alvos.keys())   
     custo = {}
     caminhos = {}
@@ -106,8 +106,9 @@ def calcular_distancias(mapa, alvos, ao_calcular=None):
             buscas[(a, b)] = buscas[(b, a)] = (exp, fron)
             total_expandidos += len(exp)
 
-            if ao_calcular is not None:
-                ao_calcular(a, b, cam, c)
+            # se tem janela aberta, desenha o caminho que acabou de calcular
+            if tela is not None:
+                ao_calcular_trecho(tela, a, b, cam, c)
 
     return custo, caminhos, buscas, total_expandidos
 
@@ -137,7 +138,7 @@ def arvore_minima(pontos, custo, penalidade):
 
     return total, grau
 
-
+#limite de held-karp 
 def limite_inferior(atual, faltam, custo, penalidade, destino=DESTINO):
     faltam = list(faltam)
     total, grau = arvore_minima(faltam, custo, penalidade)
@@ -172,30 +173,31 @@ def calcular_penalidades(custo, ginasios, origem=ORIGEM, destino=DESTINO, iterac
 
     return melhor
 
+def heuristica(atual, visitados, todos, custo, penalidade, cache, destino=DESTINO):
+    if atual == destino:
+        return 0
+    faltam = todos - visitados
+    if not faltam:
+        return custo[(atual, destino)]   # só falta ir para 'U'
+    if faltam not in cache:
+        arvore, _ = arvore_minima(faltam, custo, penalidade)
+        ligacao_destino = min(custo[(destino, x)] + penalidade[x] for x in faltam)
+        desconto = penalidade[destino] + 2 * sum(penalidade[x] for x in faltam)
+        cache[faltam] = arvore + ligacao_destino - desconto
+    ligacao_atual = min(custo[(atual, x)] + penalidade[x] for x in faltam)
+    # os custos reais são inteiros, então podemos arredondar para cima
+    return math.ceil(cache[faltam] + ligacao_atual - 1e-9)
 
+#ordem de visitacao dos ginasios 
 def a_estrela_ginasios(custo, ginasios, origem=ORIGEM, destino=DESTINO, imprimir=False):
     todos = frozenset(ginasios)
     penalidade = calcular_penalidades(custo, ginasios, origem, destino)
     cache = {}
 
-    def heuristica(atual, visitados):
-        if atual == destino:
-            return 0
-        faltam = todos - visitados
-        if not faltam:
-            return custo[(atual, destino)]   # só falta ir para 'U'
-        if faltam not in cache:
-            arvore, _ = arvore_minima(faltam, custo, penalidade)
-            ligacao_destino = min(custo[(destino, x)] + penalidade[x] for x in faltam)
-            desconto = penalidade[destino] + 2 * sum(penalidade[x] for x in faltam)
-            cache[faltam] = arvore + ligacao_destino - desconto
-        ligacao_atual = min(custo[(atual, x)] + penalidade[x] for x in faltam)
-        # os custos reais são inteiros, então podemos arredondar para cima
-        return math.ceil(cache[faltam] + ligacao_atual - 1e-9)
-
     estado_inicial = (origem, frozenset())
     contador = 0
-    fronteira = [(heuristica(origem, frozenset()), 0, contador, estado_inicial)]
+    h_inicial = heuristica(origem, frozenset(), todos, custo, penalidade, cache, destino)
+    fronteira = [(h_inicial, 0, contador, estado_inicial)]
     g = {estado_inicial: 0}
     veio_de = {estado_inicial: None}
     expandidos = []
@@ -236,20 +238,20 @@ def a_estrela_ginasios(custo, ginasios, origem=ORIGEM, destino=DESTINO, imprimir
             if novo_estado not in g or novo_g < g[novo_estado]:
                 g[novo_estado] = novo_g
                 veio_de[novo_estado] = estado
-                f = novo_g + heuristica(prox, novo_visitados)
+                f = novo_g + heuristica(prox, novo_visitados, todos, custo,
+                                        penalidade, cache, destino)
                 contador += 1
                 heapq.heappush(fronteira, (f, novo_g, contador, novo_estado))
 
     return None, float("inf"), expandidos
 
 
-def resolver_rota(mapa, alvos, imprimir_expandidos=False,
-                  ao_calcular_trecho=None, antes_da_ordem=None):
+def resolver_rota(mapa, alvos, imprimir_expandidos=False, tela=None):
     ginasios = list(GINASIOS_DIFICULDADE.keys())
     custo, caminhos, buscas, total_expandidos_grid = calcular_distancias(
-        mapa, alvos, ao_calcular=ao_calcular_trecho)
-    if antes_da_ordem is not None:
-        antes_da_ordem()
+        mapa, alvos, tela=tela)
+    if tela is not None:
+        antes_da_ordem(tela)
     ordem, custo_trechos_total, expandidos_gin = a_estrela_ginasios(
         custo, ginasios, imprimir=imprimir_expandidos)
     caminho = [alvos[ORIGEM]]
@@ -298,92 +300,103 @@ COR_POSSIBILIDADE = (220, 0, 180, 110)   # já calculados
 COR_NOVO = (255, 230, 0)  # amarelo: caminho que acabou de sair
 
 
+def centro(pos, tamanho_celula):
+    meio = tamanho_celula // 2
+    return (pos[0] * tamanho_celula + meio, pos[1] * tamanho_celula + meio)
+
+
+def tratar_eventos():
+    for evento in pygame.event.get():
+        if evento.type == pygame.QUIT:
+            pygame.quit()
+            raise SystemExit
+
+
+def escrever(tela, texto):
+    ui = tela["ui"]
+    img = tela["fonte"].render(texto, True, (255, 255, 255))
+
+    margem = 8
+    altura_caixa = img.get_height() + 10
+    largura_caixa = min(
+        img.get_width() + 2 * margem,
+        ui.largura - 2 * margem
+    )
+
+    # Posiciona a caixa na parte inferior da janela
+    x = margem
+    y = ui.altura - altura_caixa - margem
+
+    caixa = pygame.Surface(
+        (largura_caixa, altura_caixa),
+        pygame.SRCALPHA
+    )
+    caixa.fill((0, 0, 0, 200))
+
+    ui.tela.blit(caixa, (x, y))
+    ui.tela.blit(img, (x + margem, y + 5))
+
+
+def ao_calcular_trecho(tela, a, b, cam, c):
+    ui = tela["ui"]
+    tratar_eventos()
+    tela["calculados"] += 1
+    pontos = [centro(p, tela["tamanho_celula"]) for p in cam]
+    ui.tela.blit(tela["base"], (0, 0))
+    ui.tela.blit(tela["possibilidades"], (0, 0))
+    pygame.draw.lines(ui.tela, COR_NOVO, False, pontos, 3)
+    escrever(tela, f"Calculando possibilidades: {tela['calculados']}/{tela['total_pares']}"
+                   f"   {a} -> {b}: custo {c}")
+    pygame.display.flip()
+    # depois de mostrado, entra para a camada dos já calculados
+    pygame.draw.lines(tela["possibilidades"], COR_POSSIBILIDADE, False, pontos, 3)
+    pygame.time.delay(tela["atraso_ms"])
+
+
+def antes_da_ordem(tela):
+    ui = tela["ui"]
+    tratar_eventos()
+    ui.tela.blit(tela["base"], (0, 0))
+    ui.tela.blit(tela["possibilidades"], (0, 0))
+    escrever(tela, f"{tela['total_pares']} possibilidades calculadas - "
+                   "procurando a melhor ordem dos ginásios (A*)...")
+    pygame.display.flip()
+
+
 def resolver_rota_na_tela(mapa, alvos, imprimir_expandidos=False,
                           tamanho_celula=8, atraso_ms=15, atraso_passo_ms=20):
     ui = InterfaceGrafica(mapa, tamanho_celula=tamanho_celula)
-    fonte = pygame.font.SysFont(None, 16)
-    meio = tamanho_celula // 2
-    total_pares = len(alvos) * (len(alvos) - 1) // 2
 
     # o mapa não muda: desenha uma vez e guarda
     ui.desenhar_mapa()
-    base = ui.tela.copy()
-    # camada onde os caminhos calculados vão se acumulando
-    possibilidades = pygame.Surface((ui.largura, ui.altura), pygame.SRCALPHA)
-    calculados = [0]
 
-    def centro(pos):
-        return (pos[0] * tamanho_celula + meio, pos[1] * tamanho_celula + meio)
+    # tudo que as funções de desenho precisam saber sobre a janela
+    tela = {
+        "ui": ui,
+        "fonte": pygame.font.SysFont(None, 16),
+        "tamanho_celula": tamanho_celula,
+        "base": ui.tela.copy(),
+        # camada onde os caminhos calculados vão se acumulando
+        "possibilidades": pygame.Surface((ui.largura, ui.altura), pygame.SRCALPHA),
+        "calculados": 0,
+        "total_pares": len(alvos) * (len(alvos) - 1) // 2,
+        "atraso_ms": atraso_ms,
+    }
 
-    def tratar_eventos():
-        for evento in pygame.event.get():
-            if evento.type == pygame.QUIT:
-                pygame.quit()
-                raise SystemExit
-
-
-    def escrever(texto):
-        img = fonte.render(texto, True, (255, 255, 255))
-
-        margem = 8
-        altura_caixa = img.get_height() + 10
-        largura_caixa = min(
-            img.get_width() + 2 * margem,
-            ui.largura - 2 * margem
-        )
-
-        # Posiciona a caixa na parte inferior da janela
-        x = margem
-        y = ui.altura - altura_caixa - margem
-
-        caixa = pygame.Surface(
-            (largura_caixa, altura_caixa),
-            pygame.SRCALPHA
-        )
-        caixa.fill((0, 0, 0, 200))
-
-        ui.tela.blit(caixa, (x, y))
-        ui.tela.blit(img, (x + margem, y + 5))
-
-
-    def ao_calcular_trecho(a, b, cam, c):
-        tratar_eventos()
-        calculados[0] += 1
-        pontos = [centro(p) for p in cam]
-        ui.tela.blit(base, (0, 0))
-        ui.tela.blit(possibilidades, (0, 0))
-        pygame.draw.lines(ui.tela, COR_NOVO, False, pontos, 3)
-        escrever(f"Calculando possibilidades: {calculados[0]}/{total_pares}"
-                 f"   {a} -> {b}: custo {c}")
-        pygame.display.flip()
-        # depois de mostrado, entra para a camada dos já calculados
-        pygame.draw.lines(possibilidades, COR_POSSIBILIDADE, False, pontos, 3)
-        pygame.time.delay(atraso_ms)
-
-    def antes_da_ordem():
-        tratar_eventos()
-        ui.tela.blit(base, (0, 0))
-        ui.tela.blit(possibilidades, (0, 0))
-        escrever(f"{total_pares} possibilidades calculadas - "
-                 "procurando a melhor ordem dos ginásios (A*)...")
-        pygame.display.flip()
-
-    resultado = resolver_rota(mapa, alvos, imprimir_expandidos,
-                              ao_calcular_trecho=ao_calcular_trecho,
-                              antes_da_ordem=antes_da_ordem)
+    resultado = resolver_rota(mapa, alvos, imprimir_expandidos, tela=tela)
 
     # melhor rota encontrada: apaga as possibilidades e anda só por ela
     percorrido = []
     for pos in resultado["caminho"]:
         tratar_eventos()
         percorrido.append(pos)
-        ui.tela.blit(base, (0, 0))
+        ui.tela.blit(tela["base"], (0, 0))
         ui.desenhar_visitados(resultado["visitados"])
         ui.desenhar_fronteira(resultado["fronteira"])
         ui.desenhar_caminho(percorrido)
         ui.desenhar_agente(pos)
-        escrever(f"Melhor rota: {' -> '.join(resultado['ordem'])}"
-                 f"   C_rota = {resultado['custo_rota']}")
+        escrever(tela, f"Melhor rota: {' -> '.join(resultado['ordem'])}"
+                       f"   C_rota = {resultado['custo_rota']}")
         pygame.display.flip()
         pygame.time.delay(atraso_passo_ms)
 
